@@ -2,7 +2,6 @@
 
 **Asignatura:** INFO188 - Paradigmas de Programación  
 **Profesor:** Cristóbal A. Navarro  
-**Ayudante:** Nothing  
 **Semestre:** 2026-2  
 **Plazo de Entrega:** Viernes 20 de Noviembre 2026  
 
