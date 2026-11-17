@@ -304,56 +304,13 @@ Matthew Cook demostró en 1998 (publicado en 2004) que la Regla 110 es **Turing-
 
 ---
 
-## 7. Guía de Preparación para la Interrogación
-
-> [!NOTE]
-> La pauta estipula explícitamente: *"Pueden usar IA para acelerar el desarrollo (usarlo responsablemente, habrá interrogación)"*. Esta sección sintetiza las preguntas técnicas clave que la comisión docente suele formular, acompañadas de su fundamentación teórica para una defensa óptima.
-
-### Pregunta 1: ¿Qué es la mónada `State` y cómo garantiza la pureza referencial de Haskell?
-**Respuesta:**  
-La mónada `State` no utiliza variables mutables a nivel de memoria de bajo nivel. Matemáticamente es un nuevo tipo (o wrapper `newtype`) sobre una función ordinaria:
-```haskell
-newtype State s a = State { runState :: s -> (a, s) }
-```
-La instancia de `Monad` se encarga de encadenar el valor de salida del estado $s_1$ como argumento de entrada para la siguiente computación $s_1 \to (b, s_2)$ mediante el operador `bind` (`>>=`). Esto permite escribir código con apariencia secuencial e imperativa (vía notación `do`) mientras el código compilado sigue siendo puramente funcional y matemáticamente determinista.
-
-### Pregunta 2: ¿Por qué la simulación ejecuta `replicateM_ (n - 1) paso` en lugar de `n` veces?
-**Respuesta:**  
-Porque la **generación 0** (la condición inicial) ya existe en el estado de partida del autómata (`historial = [c0]`). Si el usuario solicita $N$ generaciones (por ejemplo, 8 líneas de salida), la primera línea corresponde a la generación inicial $t = 0$. En consecuencia, solo se requieren $N - 1$ evoluciones temporales para alcanzar un total de $N$ generaciones impresas.
-
-### Pregunta 3: ¿Cómo se implementaron los bordes periódicos y por qué se evitó el operador `(!!)`?
-**Respuesta:**  
-El acceso a listas por índice mediante `(!!)` en Haskell es $O(N)$. Si recorriéramos las $N$ celdas llamando a `(!!)` para sus vecinos, cada paso de generación tendría una complejidad computacional ineficiente de $O(N^2)$.  
-En su lugar, creamos tres listas desplazadas:
-* `vecinosIzq = ultimo : prefijo` (desplazamiento a la derecha con el último elemento cerrado sobre el primero).
-* `celdasTotales = c : cs` (la fila central).
-* `vecinosDer = cs ++ [c]` (desplazamiento a la izquierda con el primer elemento cerrado sobre el último).
-
-Al aplicar `zipWith3`, Haskell procesa las tres listas en un único recorrido perezoso en tiempo lineal estricto $\mathcal{O}(N)$, garantizando óptimo rendimiento y total seguridad contra listas vacías o desbordes de índices.
-
-### Pregunta 4: ¿Cómo se mapea una regla arbitraria de 0 a 255 a la evolución de una vecindad?
-**Respuesta:**  
-Una vecindad de 3 celdas booleanas $(\text{izq}, \text{centro}, \text{der})$ se interpreta como un número binario de 3 bits entre 0 y 7:
-$$\text{índice} = 4 \cdot \text{izq} + 2 \cdot \text{centro} + 1 \cdot \text{der}$$
-En Haskell, la función `testBit :: Bits a => a -> Int -> Bool` de `Data.Bits` consulta directamente si el bit en la posición `índice` de la regla está encendido (`True`) o apagado (`False`). Por ejemplo, para la regla 30 ($00011110_2$), la vecindad `1 0 0` produce el índice $4$, y el bit 4 de 30 es `1` (`True`).
-
-### Pregunta 5: ¿Qué rol cumplen `get`, `put`, `modify` y `gets` en el código?
-**Respuesta:**  
-Son las primitivas fundamentales de la clase `MonadState`:
-* `get`: Lee el valor actual del estado (`aut <- get`).
-* `put`: Sobrescribe el estado con un nuevo valor (`put aut'`).
-* `modify`: Aplica una función pura de transformación `s -> s` al estado (`modify f = get >>= put . f`).
-* `gets`: Proyecta un subcampo del estado aplicando una función selectora (`gets (reverse . historial)`).
-
----
-
-## 8. Estructura de Archivos del Repositorio
+## 7. Estructura de Archivos del Repositorio
 
 ```text
 Trabajo-paradigmas/
 ├── Automata.hs              # Módulo principal con registro, lógica Wolfram, State y Xorshift
 ├── main.hs                  # Punto de entrada CLI, parser de argumentos y visualización
 ├── Makefile                 # Script de compilación automatizada (make, make run, make test, make clean)
-├── README.md                # Informe completo, fundamentación matemática y guía de interrogación
+├── README.md                # Informe completo y fundamentación matemática
 └── .gitignore               # Exclusión de binarios, archivos compilados (.o, .hi), temporales y PDFs
 ```
