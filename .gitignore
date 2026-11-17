@@ -1,0 +1,13 @@
+# Archivos compilados y binarios
+prog
+prog.exe
+*.o
+*.hi
+*.dyn_o
+*.dyn_hi
+
+# Archivos de respaldo o temporales
+*~
+*.swp
+.DS_Store
+*.pdf
