@@ -11,31 +11,31 @@
 * Martin Arrigo
 * Diego Mora
 
-
 ---
 
 ## 1. Resumen Ejecutivo e Introducción
 
-Este proyecto implementa en el lenguaje funcional puro **Haskell** un simulador de **Autómatas Celulares Elementales Unidimensionales (1D ECA)** según la formulación matemática introducida por Stephen Wolfram en 1983.
+Este proyecto implementa en **Haskell** un simulador de **Autómatas Celulares Elementales Unidimensionales (1D ECA)** según la formulación de Stephen Wolfram (1983). Un autómata celular 1D consiste en una fila finita de células binarias (**viva** `#` / `True` o **muerta** ` ` / `False`) que evolucionan de forma discreta y sincrónica según el estado actual de cada célula y sus dos vecinas inmediatas.
 
-Un autómata celular 1D consiste en un arreglo unidimensional finito de células discretas, donde cada célula puede encontrarse en uno de dos estados posibles: **viva** (`#` / `True`) o **muerta** (` ` / `False`). La evolución temporal avanza en pasos discretos $t \to t+1$, donde el estado futuro de cada célula se computa de forma sincrónica y determinista en función de su estado actual y el de sus dos vecinas inmediatas (izquierda y derecha).
+La implementación prioriza un código **conciso, legible y funcional puro** (`Automata.hs` con 68 líneas y `main.hs` con 44 líneas), cumpliendo la totalidad de la pauta y los puntos extras:
 
-El proyecto no solo satisface todos los requerimientos base de la pauta, sino que incorpora la totalidad de los puntos extras estipulados:
-1. **Condiciones de frontera periódicas (cíclicas / toroidales)** para un comportamiento continuo sin efectos de borde espurios.
-2. **Modelado como tipo registro (`data Automata`)** con funciones puras y totales.
-3. **[+1.0 Extra A] Condición inicial pseudo-aleatoria configurable**, tanto con reloj de alta resolución (`POSIXTime`) como con semillas enteras deterministas.
-4. **[+1.0 Extra E] Simulación monádica con `Control.Monad.State`**, implementando la función `paso :: State Automata ()`, la orquestación iterativa mediante `replicateM_`, y el acceso transparente mediante los combinadores fundamentales `get`, `put`, `modify` y `gets`, sin pasaje explícito de estado.
+1. **Modelado mediante registro (`data Automata`)** con transición pura `pasoPuro :: Automata -> Automata` (Requisito 1).
+2. **Reglas elementales de Wolfram (0 a 255) con bordes periódicos** en tiempo lineal $O(N)$ (Requisito 2).
+3. **Ejecución por línea de comandos** `./prog <regla> <ancho> <generaciones>` con validación segura mediante `readMaybe` y `Either` (Requisito 3).
+4. **[+1.0 Extra A] Condición inicial pseudoaleatoria** configurable con reloj del sistema (`POSIXTime`) o semilla entera reproducible, usando un generador puro `xorshift64`.
+5. **[+1.0 Extra E] Simulación con la mónada `State`** (`Control.Monad.State`): `paso :: State Automata ()`, `simular` con `replicateM_`, y uso de `modify`, `gets` y `evalState` sin pasar el estado manualmente entre funciones.
 
 ---
 
 ## 2. Fundamentos Matemáticos: Reglas de Wolfram y Bordes Periódicos
 
-### 2.1. Dinámica de Vecindad y Reglas Elementales (0 a 255)
+### 2.1. Vecindad y Reglas Elementales (0 a 255)
 
-Cada célula $c_i^{(t)}$ en la posición $i$ posee una vecindad local de radio $r = 1$:
+Cada célula $c_i^{(t)}$ posee una vecindad de radio $r = 1$:
+
 $$\mathcal{V}_i^{(t)} = \left( c_{i-1}^{(t)},\; c_i^{(t)},\; c_{i+1}^{(t)} \right)$$
 
-Dado que cada célula es binaria ($c \in \{0, 1\}$), existen exactamente $2^3 = 8$ posibles configuraciones para la vecindad. Wolfram indexó estas vecindades interpretándolas como números binarios de 3 bits entre 7 y 0:
+Como cada célula es binaria, existen $2^3 = 8$ configuraciones posibles, indexadas como números binarios de 3 bits entre `0` y `7`:
 
 | Índice Decimal | Vecindad $(c_{i-1}, c_i, c_{i+1})$ | Regla 30 ($00011110_2$) | Regla 90 ($01011010_2$) | Regla 110 ($01101110_2$) |
 |:---:|:---:|:---:|:---:|:---:|
@@ -48,23 +48,19 @@ Dado que cada célula es binaria ($c \in \{0, 1\}$), existen exactamente $2^3 = 
 | **1** | `0 0 1` | `1` | `1` | `1` |
 | **0** | `0 0 0` | `0` | `0` | `0` |
 
-Una **regla elemental** $R \in [0, 255]$ queda unívocamente definida por una palabra de 8 bits:
-$$R = \sum_{k=0}^{7} b_k \cdot 2^k$$
+En `Automata.hs`, `fromEnum` convierte `False -> 0` y `True -> 1`, permitiendo calcular el índice $k = 4 c_{i-1} + 2 c_i + c_{i+1}$ y consultar directamente el $k$-ésimo bit de la regla mediante `Data.Bits.testBit`:
 
-Para evaluar el estado futuro de una célula cuya vecindad tiene índice decimal $k = 4 c_{i-1} + 2 c_i + c_{i+1}$, basta con consultar el $k$-ésimo bit de la regla:
-$$c_i^{(t+1)} = \text{testBit}(R, k)$$
+```haskell
+aplicarRegla :: Regla -> Bool -> Bool -> Bool -> Bool
+aplicarRegla r izq centro der =
+  testBit r (4 * fromEnum izq + 2 * fromEnum centro + fromEnum der)
+```
 
-### 2.2. Bordes Periódicos (Topología Cíclica / Toroide 1D)
+### 2.2. Bordes Periódicos (Anillo 1D)
 
-En una rejilla finita de $N$ células indexadas $0, 1, \dots, N-1$, los bordes exteriores no poseen naturalmente vecinos izquierdo o derecho. Para resolver esto de manera matemáticamente elegante y sin romper la conservación o simetría de la regla, se aplican **bordes periódicos**:
+En una rejilla de $N$ células indexadas $0, 1, \dots, N-1$, los extremos se conectan de forma circular:
+
 $$c_{-1}^{(t)} \equiv c_{N-1}^{(t)} \quad \text{y} \quad c_{N}^{(t)} \equiv c_0^{(t)}$$
-
-En Haskell, esto se implementa funcionalmente sin indexación manual $O(N^2)$ mediante la construcción de tres listas desplazadas:
-* **Vecinos izquierdos:** El último elemento prepended a las primeras $N-1$ células (`descomponerFinal`).
-* **Celdas centrales:** La lista original de células.
-* **Vecinos derechos:** El resto de la lista seguido de la primera célula al final (`cs ++ [c]`).
-
-Luego, un único recorrido $O(N)$ con `zipWith3` genera la siguiente generación completa de forma perezosa e inmutable.
 
 ```mermaid
 flowchart LR
@@ -74,169 +70,169 @@ flowchart LR
         C1 <--> C2["c[2]"]
         C2 <--> Dots["..."]
         Dots <--> CN["c[N-1]"]
-        CN -. "Vecino Izq de c[0] = c[N-1]" .-> C0
-        C0 -. "Vecino Der de c[N-1] = c[0]" .-> CN
+        CN -. "Vecino izq. de c[0] = c[N-1]" .-> C0
+        C0 -. "Vecino der. de c[N-1] = c[0]" .-> CN
     end
 ```
+
+En `Automata.hs` esto se expresa en una sola línea sin indexación manual:
+
+```haskell
+siguienteGeneracion :: Regla -> Celdas -> Celdas
+siguienteGeneracion _ []        = []
+siguienteGeneracion r xs@(c:cs) =
+  zipWith3 (aplicarRegla r) (last xs : xs) xs (cs ++ [c])
+```
+
+* **Vecinos izquierdos:** `last xs : xs` antepone la última celda al inicio. Aunque tiene $N + 1$ elementos, `zipWith3` se detiene en el largo de `xs` ($N$), descartando el último elemento sin necesidad de usar `init`.
+* **Celdas centrales:** `xs`.
+* **Vecinos derechos:** `cs ++ [c]` mueve la primera celda al final.
+
+El recorrido completo se ejecuta en tiempo lineal $O(N)$.
 
 ---
 
 ## 3. Arquitectura del Software y Mónada State
 
-El proyecto se divide de acuerdo a principios de modularidad, tipado estricto y total desacoplamiento entre la lógica pura de evolución y los efectos de entrada/salida (I/O).
+El proyecto separa completamente la lógica pura (`Automata.hs`) de los efectos de entrada/salida (`main.hs`):
 
 ```mermaid
 flowchart TD
-    CLI["Línea de Comandos (main.hs)"] --> Parse["parsearParametros & Validación"]
-    Parse --> Init{"Condición Inicial"}
-    Init -->|"Por Defecto"| Centered["crearAutomataCentrado"]
-    Init -->|"random / --random / Semilla"| Rnd["crearAutomataAleatorio (Xorshift64)"]
-    
-    Centered --> StateMonad["Control.Monad.State (Automata.hs)"]
-    Rnd --> StateMonad
-    
-    subgraph MonadBox ["Simulación Monádica Pura"]
+    CLI["CLI (main.hs · IO)"] --> Parse["parsear / parsear3 (Either String)"]
+    Parse -->|"Error"| Err["stderr + exitFailure"]
+    Parse -->|"3 args"| Centered["crearAutomataCentrado"]
+    Parse -->|"4 args (random / semilla)"| Rnd["crearAutomataAleatorio (xorshift64)"]
+
+    Centered --> StateBox
+    Rnd --> StateBox
+
+    subgraph StateBox ["Simulación Monádica Pura (Automata.hs)"]
         direction TB
-        S0["Automata Inicial (gen 0)"] --> Rep["replicateM_ (n - 1) paso"]
-        Rep -->|"paso = get >>= put"| SFinal["Automata Final"]
+        S0["Estado inicial (gen 0, historial = [c0])"] --> Rep["simular n = replicateM_ (max 0 (n - 1)) paso"]
+        Rep -->|"paso = modify pasoPuro"| SFinal["Estado final"]
         SFinal --> Gets["gets (reverse . historial)"]
     end
-    
-    StateMonad --> MonadBox
-    MonadBox --> Render["renderCeldas (True -> '#', False -> ' ')"]
-    Render --> Out["Salida por Consola (stdout)"]
+
+    StateBox -->|"evalState"| Render["renderCeldas (True -> '#', False -> ' ')"]
+    Render --> Out["Impresión en stdout (mapM_ putStrLn)"]
 ```
 
 ### 3.1. Modelado de Datos (`Automata.hs`)
 
 ```haskell
-type Regla = Int
+type Regla  = Int
 type Celdas = [Bool]
 
 data Automata = Automata
-  { celdas     :: !Celdas     -- ^ Células actuales
-  , regla      :: !Regla      -- ^ Código de regla de Wolfram (0 a 255)
-  , generacion :: !Int        -- ^ Generación actual
-  , historial  :: ![Celdas]   -- ^ Historial acumulado en tiempo O(1)
+  { celdas     :: Celdas
+  , regla      :: Regla
+  , generacion :: Int
+  , historial  :: [Celdas]
   } deriving (Show, Eq)
 ```
 
-### 3.2. Implementación de la Mónada State (Bonus E)
+El campo `historial` acumula cada fila nueva al frente de la lista con `(:)` en tiempo $O(1)$, lo que permite que `simular` use `replicateM_` (que descarta el valor de retorno `()` de cada paso) y luego recuperar todas las generaciones en orden cronológico con `reverse`.
 
-En la programación imperativa, el estado de un autómata se suele modificar mediante variables mutables. En la programación funcional pura de Haskell, las funciones deben ser referencialmente transparentes: la firma conceptual de una función de estado es:
-$$\text{transición} :: s \to (a, s)$$
+### 3.2. Simulación con la Mónada `State` (Extra E)
 
-La mónada `State s a` encapsula exactamente este patrón matemático dentro de una mónada estándar de Haskell (`mtl`).
-
-#### La función `paso :: State Automata ()`:
 ```haskell
-paso :: State Automata ()
-paso = do
-  aut <- get
+pasoPuro :: Automata -> Automata
+pasoPuro aut =
   let nuevas = siguienteGeneracion (regla aut) (celdas aut)
-  put aut
-    { celdas     = nuevas
-    , generacion = generacion aut + 1
-    , historial  = nuevas : historial aut
-    }
-```
+  in aut { celdas = nuevas, generacion = generacion aut + 1, historial = nuevas : historial aut }
 
-* **`get`**: Inspecciona el estado actual del autómata sin requerir un parámetro de función explícito.
-* **`put`**: Reemplaza el estado interno por la nueva configuración calculada.
-* **`modify`**: Provee una alternativa idiomática equivalente (`modify pasoPuro`).
+paso :: State Automata ()
+paso = modify pasoPuro
 
-#### Orquestación con `replicateM_`:
-```haskell
 simular :: Int -> State Automata ()
-simular nGeneraciones
-  | nGeneraciones <= 1 = return ()
-  | otherwise          = replicateM_ (nGeneraciones - 1) paso
+simular n = replicateM_ (max 0 (n - 1)) paso
+
+ejecutarSimulacion :: Automata -> Int -> [Celdas]
+ejecutarSimulacion aut n = evalState (simular n >> gets (reverse . historial)) aut
 ```
 
-`replicateM_` ejecuta el bloque monádico `paso` exactamente $N-1$ veces, encadenando automáticamente la transformación de estado mediante el operador monádico `>>=`. Al finalizar, se extraen las generaciones con:
+* **`pasoPuro`**: Función pura de transición `Automata -> Automata` (retorna un nuevo registro sin mutación).
+* **`paso`**: Encapsula la transición dentro de `State Automata ()` mediante `modify`, actualizando el estado implícito sin pasarlo manualmente entre funciones.
+* **`simular`**: Ejecuta `n - 1` transiciones con `replicateM_` (ya que la generación `0` está presente desde el estado inicial; `max 0` evita valores negativos).
+* **`ejecutarSimulacion`**: Secuencia `simular n` y `gets (reverse . historial)` con `>>`, evaluando el estado inicial con `evalState` para obtener la lista completa `[Celdas]`.
+
+### 3.3. Validación de Argumentos (`main.hs`)
+
+El módulo `Main` evita funciones parciales como `read`: parsea y valida todos los parámetros usando `readMaybe` dentro de la mónada `Either String`:
 
 ```haskell
-obtenerHistorial :: State Automata [Celdas]
-obtenerHistorial = gets (reverse . historial)
+parsear :: [String] -> Either String (Regla, Int, Int, Maybe String)
+parsear [rS, wS, gS]       = parsear3 rS wS gS Nothing
+parsear [rS, wS, gS, modo] = parsear3 rS wS gS (Just modo)
+parsear _                  = Left "Uso: <regla 0-255> <ancho> <generaciones> [random | semilla]"
 ```
 
-> [!IMPORTANT]
-> **Sin pasaje manual de estado:** En ningún momento del ciclo de vida de la simulación las funciones intermedias reciben ni devuelven tuplas `(resultado, estadoNuevo)`. Toda la propagación está confinada al contexto monádico de `State`.
+Si cualquier parámetro no es entero o está fuera de rango (`regla` en `[0, 255]`, `ancho > 0`, `generaciones > 0`), el bloque `do` sobre `Either` se cortocircuita y `main` reporta el error en `stderr` finalizando con `exitFailure`.
 
 ---
 
-## 4. Condición Inicial Aleatoria (Bonus A)
+## 4. Condición Inicial Aleatoria (Extra A)
 
-Para otorgar flexibilidad sin recurrir a dependencias externas complejas, se implementó un generador pseudo-aleatorio puro basado en **XorShift64**:
+Para generar filas iniciales aleatorias de forma pura y autocontenida (sin librerías externas) se implementó **XorShift64** combinado con evaluación perezosa (`iterate`):
 
 ```haskell
 xorshift64 :: Word64 -> Word64
 xorshift64 s0 =
   let s1 = s0 `xor` (s0 `shiftL` 13)
       s2 = s1 `xor` (s1 `shiftR` 7)
-      s3 = s2 `xor` (s2 `shiftL` 17)
-  in s3
+  in s2 `xor` (s2 `shiftL` 17)
+
+crearAutomataAleatorio :: Regla -> Int -> Word64 -> Automata
+crearAutomataAleatorio r ancho semilla =
+  let s0 = if semilla == 0 then 0x853c49e6748fea9b else semilla
+      c0 = take (max 0 ancho) . map (`testBit` 0) . drop 1 $ iterate xorshift64 s0
+  in nuevoAutomata r c0
 ```
 
-El programa permite dos formas de inicialización aleatoria:
-1. **Determinista reproducible:** Pasando un entero cualquiera como 4to argumento (ej: `./prog 30 40 20 12345`).
-2. **Estocástica en tiempo real:** Pasando `random` o `-r` como 4to argumento, donde la semilla se extrae de `Data.Time.Clock.POSIX.getPOSIXTime` a nivel de microsegundos.
+* Si `semilla == 0`, se sustituye por una constante hexadecimal no nula para evitar el estado fijo `0` de XorShift.
+* En `main.hs`, se admiten dos modalidades al pasar un 4to argumento:
+  1. **Reloj del sistema (`random`, `-r`, `--random`):** `obtenerSemilla` extrae microsegundos desde `Data.Time.Clock.POSIX.getPOSIXTime`.
+  2. **Semilla fija reproducible (entero):** Por ejemplo `./prog 90 31 8 42`, convirtiendo el entero a `Word64` con `fromInteger`.
 
 ---
 
 ## 5. Compilación y Ejecución
 
-El proyecto incluye un `Makefile` compatible con sistemas Linux, macOS y Windows (WSL / MSYS2 / Mingw).
-
 ### 5.1. Requisitos
-* Compilador GHC (Glasgow Haskell Compiler) $\ge 9.0$
-* GNU Make
+* **GHC** (Glasgow Haskell Compiler) $\ge 9.0$
+* **GNU Make**
 
-### 5.2. Comandos del Makefile
+### 5.2. Comandos del `Makefile`
 
-* **Compilar el ejecutable `prog`:**
-  ```bash
-  make
-  ```
-  *(Compila con optimizaciones `-O2` y flags estrictos de advertencia `-Wall` sin advertencias).*
+```bash
+make        # Compila con: ghc -O2 -Wall main.hs -o prog (cero advertencias)
+make run    # Ejecuta el ejemplo oficial: ./prog 90 31 8
+make test   # Ejecuta pruebas con Regla 90, Regla 30 y modo aleatorio
+make clean  # Elimina prog, *.o, *.hi y *.exe
+```
 
-* **Ejecutar el caso de prueba oficial:**
-  ```bash
-  make run
-  ```
-
-* **Ejecutar la suite completa de pruebas:**
-  ```bash
-  make test
-  ```
-
-* **Limpiar binarios y archivos temporales (`.o`, `.hi`):**
-  ```bash
-  make clean
-  ```
-
-### 5.3. Sintaxis del Programa
+### 5.3. Sintaxis de Ejecución
 
 ```bash
 ./prog <regla> <ancho> <generaciones> [modo_inicial]
 ```
 
-* `<regla>`: Entero entre $0$ y $255$.
-* `<ancho>`: Entero positivo (ej: $31$).
-* `<generaciones>`: Entero positivo (ej: $8$).
-* `[modo_inicial]` *(Opcional)*:
-  * Omitido: Una única célula viva centrada en la posición `ancho `div` 2`.
-  * `random` o `-r`: Inicialización aleatoria sembrada por el reloj del sistema.
-  * `<número>`: Inicialización aleatoria reproducible con semilla fija.
+* `<regla>`: Entero entre `0` y `255`.
+* `<ancho>`: Entero positivo (cantidad de células por fila).
+* `<generaciones>`: Entero positivo (cantidad total de filas a mostrar).
+* `[modo_inicial]` *(opcional)*:
+  * Omitido: Una célula viva única centrada en `ancho `div` 2`.
+  * `random`, `-r` o `--random`: Inicialización aleatoria basada en el reloj POSIX.
+  * `<entero>`: Inicialización aleatoria determinista con semilla fija.
 
 ---
 
-## 6. Verificación Experimental y Salida del Sistema
+## 6. Verificación Experimental
 
-### 6.1. Ejemplo Oficial (Regla 90, Ancho 31, 8 Generaciones)
+### 6.1. Ejemplo Oficial — Regla 90 (Triángulo de Sierpinski)
+Regla aditiva $c_i^{(t+1)} = c_{i-1}^{(t)} \oplus c_{i+1}^{(t)}$:
 
-Ejecución del comando solicitado en la pauta:
-```bash
+```text
 $ ./prog 90 31 8
                #               
               # #              
@@ -247,35 +243,12 @@ $ ./prog 90 31 8
          #   #   #   #         
         # # # # # # # #        
 ```
-*Coincidencia 100% exacta con la salida provista en el enunciado del PDF.*
 
-### 6.2. Reglas Notables de Wolfram
-
-````carousel
-<!-- slide -->
-#### Regla 90: Fractales y Triángulo de Sierpinski (Clase II / III)
-La Regla 90 es una regla aditiva lineal sobre $\mathbb{F}_2$: cada celda es el XOR de sus vecinos:
-$$c_i^{(t+1)} = c_{i-1}^{(t)} \oplus c_{i+1}^{(t)}$$
-Genera una estructura autosimilar fractal equivalente al triángulo de Sierpinski con dimensión de Hausdorff $D = \log_2(3) \approx 1.585$.
+### 6.2. Regla 30 (Comportamiento Caótico)
+Regla no lineal $c_i^{(t+1)} = c_{i-1}^{(t)} \oplus (c_i^{(t)} \lor c_{i+1}^{(t)})$:
 
 ```text
-               #               
-              # #              
-             #   #             
-            # # # #            
-           #       #           
-          # #     # #          
-         #   #   #   #         
-        # # # # # # # #        
-```
-
-<!-- slide -->
-#### Regla 30: Caos Determinista y Criptografía (Clase III)
-La Regla 30 exhibe comportamiento aperiódico caótico a partir de una única semilla central:
-$$c_i^{(t+1)} = c_{i-1}^{(t)} \oplus (c_i^{(t)} \lor c_{i+1}^{(t)})$$
-Es célebremente utilizada en *Mathematica* como generador de números pseudoaleatorios criptográficos para la columna central.
-
-```text
+$ ./prog 30 31 8
                #               
               ###              
              ##  #             
@@ -286,11 +259,10 @@ Es célebremente utilizada en *Mathematica* como generador de números pseudoale
         ## ####  ######        
 ```
 
-<!-- slide -->
-#### Regla 110: Universalidad Computacional y Turing-Completo (Clase IV)
-Matthew Cook demostró en 1998 (publicado en 2004) que la Regla 110 es **Turing-completa**, lo que significa que es capaz de simular cualquier cómputo algorítmico universal a través de colisiones de estructuras localizadas llamadas *gliders*.
+### 6.3. Regla 110 (Turing-Completa)
 
 ```text
+$ ./prog 110 31 8
                #               
               ##               
              ###               
@@ -300,17 +272,30 @@ Matthew Cook demostró en 1998 (publicado en 2004) que la Regla 110 es **Turing-
          ###  ##               
         ## # ###               
 ```
-````
+
+### 6.4. Modo Aleatorio Reproducible (Extra A, semilla `42`)
+
+```text
+$ ./prog 90 31 8 42
+ #   ##  ## #### ## #   ###   #
+  # ####### #  # ##  # ## ## # 
+ #  #     #  ##  ####  ## ##  #
+  ## #   # #######  ##### #### 
+ ###  # #  #     ####   # #  ##
+ # ###   ## #   ##  ## #   ####
+   # ## ###  # #######  # ##  #
+# #  ## # ###  #     ###  #### 
+```
 
 ---
 
-## 7. Estructura de Archivos del Repositorio
+## 7. Estructura del Repositorio
 
 ```text
 Trabajo-paradigmas/
-├── Automata.hs              # Módulo principal con registro, lógica Wolfram, State y Xorshift
-├── main.hs                  # Punto de entrada CLI, parser de argumentos y visualización
-├── Makefile                 # Script de compilación automatizada (make, make run, make test, make clean)
-├── README.md                # Informe completo y fundamentación matemática
-└── .gitignore               # Exclusión de binarios, archivos compilados (.o, .hi), temporales y PDFs
+├── Automata.hs   # Registro Automata, reglas de Wolfram, bordes periódicos, State y XorShift64 (68 líneas)
+├── main.hs       # CLI, validación con Either/readMaybe, reloj POSIX e impresión (44 líneas)
+├── Makefile      # Compilación (-O2 -Wall), ejecución, pruebas y limpieza
+├── README.md     # Informe técnico del proyecto
+└── .gitignore    # Exclusión de binarios (prog), objetos (.o, .hi), temporales y PDFs
 ```
