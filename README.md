@@ -197,7 +197,7 @@ crearAutomataAleatorio r ancho semilla =
 
 ```bash
 make        # Compila con: ghc -O2 -Wall main.hs -o prog (cero advertencias)
-make test   # Ejecuta pruebas con Regla 90, Regla 30 y modo aleatorio
+make test   # Ejecuta pruebas con Regla 90, Regla 30, Regla 110 y modo aleatorio
 make clean  # Elimina prog, *.o, *.hi y *.exe
 ```
 
