@@ -2,8 +2,7 @@
 
 **Asignatura:** INFO188 - Paradigmas de Programación  
 **Profesor:** Cristóbal A. Navarro  
-**Semestre:** 2026-2  
-**Plazo de Entrega:** Viernes 20 de Noviembre 2026  
+**Plazo de Entrega:** Viernes 27 de Noviembre 2026  
 
 ---
 
@@ -16,14 +15,6 @@
 ## 1. Resumen Ejecutivo e Introducción
 
 Este proyecto implementa en **Haskell** un simulador de **Autómatas Celulares Elementales Unidimensionales (1D ECA)** según la formulación de Stephen Wolfram (1983). Un autómata celular 1D consiste en una fila finita de células binarias (**viva** `#` / `True` o **muerta** ` ` / `False`) que evolucionan de forma discreta y sincrónica según el estado actual de cada célula y sus dos vecinas inmediatas.
-
-La implementación prioriza un código **conciso, legible y funcional puro** (`Automata.hs` con 68 líneas y `main.hs` con 44 líneas), cumpliendo la totalidad de la pauta y los puntos extras:
-
-1. **Modelado mediante registro (`data Automata`)** con transición pura `pasoPuro :: Automata -> Automata` (Requisito 1).
-2. **Reglas elementales de Wolfram (0 a 255) con bordes periódicos** en tiempo lineal $O(N)$ (Requisito 2).
-3. **Ejecución por línea de comandos** `./prog <regla> <ancho> <generaciones>` con validación segura mediante `readMaybe` y `Either` (Requisito 3).
-4. **[+1.0 Extra A] Condición inicial pseudoaleatoria** configurable con reloj del sistema (`POSIXTime`) o semilla entera reproducible, usando un generador puro `xorshift64`.
-5. **[+1.0 Extra E] Simulación con la mónada `State`** (`Control.Monad.State`): `paso :: State Automata ()`, `simular` con `replicateM_`, y uso de `modify`, `gets` y `evalState` sin pasar el estado manualmente entre funciones.
 
 ---
 
@@ -206,7 +197,6 @@ crearAutomataAleatorio r ancho semilla =
 
 ```bash
 make        # Compila con: ghc -O2 -Wall main.hs -o prog (cero advertencias)
-make run    # Ejecuta el ejemplo oficial: ./prog 90 31 8
 make test   # Ejecuta pruebas con Regla 90, Regla 30 y modo aleatorio
 make clean  # Elimina prog, *.o, *.hi y *.exe
 ```

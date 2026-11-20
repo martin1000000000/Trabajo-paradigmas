@@ -15,17 +15,15 @@ all: $(TARGET)
 $(TARGET): $(SOURCES)
 	$(GHC) $(GHCFLAGS) main.hs -o $(TARGET)
 
-# Ejecuta el ejemplo especificado en la pauta oficial (Regla 90, ancho 31, 8 generaciones)
-run: $(TARGET)
-	./$(TARGET) 90 31 8
-
 # Ejecuta una batería de pruebas con casos notables
 test: $(TARGET)
 	@echo "=== Prueba 1: Ejemplo oficial (Regla 90, ancho 31, 8 generaciones) ==="
 	./$(TARGET) 90 31 8
 	@echo "\n=== Prueba 2: Regla 30 (Caos) ==="
 	./$(TARGET) 30 31 8
-	@echo "\n=== Prueba 3: Condición inicial aleatoria (Bonus A) ==="
+	@echo "\n=== Prueba 3: Regla 110 (Turing-Completa) ==="
+	./$(TARGET) 110 31 8
+	@echo "\n=== Prueba 4: Condición inicial aleatoria (Bonus A) ==="
 	./$(TARGET) 90 31 8 random
 
 # Limpieza de binarios y archivos temporales generados por GHC
